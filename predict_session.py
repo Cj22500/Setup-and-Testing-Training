@@ -19,8 +19,9 @@ def predict_session(session_dir):
         print(f"[Predictor] Session missing heatmap or CSV log: {session_dir}")
         return None
 
-    ordered_values = [[features.get(col, 0.0) for col in feature_columns]]
-    probability_cheating = model.predict_proba(ordered_values)[0][1]
+    import pandas as pd
+    ordered_df = pd.DataFrame([[features.get(col, 0.0) for col in feature_columns]], columns=feature_columns)
+    probability_cheating = model.predict_proba(ordered_df)[0][1]
 
     label = "cheating" if probability_cheating >= 0.5 else "non_cheating"
     confidence = probability_cheating if label == "cheating" else 1 - probability_cheating
