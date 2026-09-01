@@ -83,9 +83,18 @@ Saved Session Directory (Heatmap PNG + CSV Log)
 - **`eye_calibrationprocessor.py`**: Manages a 5-stage calibration sequence (Center, Up, Down, Left, Right) with 60 samples per stage stored in `calibration_data.json`.
 - **`eye_screenposprocessor.py` & `gaze_directionprocessor.py`**: Fuses face axis (45%) and eye gaze (55%) estimates with Exponential Moving Average (EMA) smoothing (`tau = 0.18s`) into a 3x3 screen grid.
 
-### 3.2 Violation & Heatmap Processors
-- **`suspicion_scoringprocessor.py`**: Monitors threshold triggers (Side looking > 3.0s, Down looking > 5.0s, Off-screen > 1.5s, Frantic shifts > 6 / 10s) and triggers AVI video clip saves.
-- **`keypress_trackprocessor.py`**: Listens for evasive key combos (`Alt+Tab`, `Ctrl+C/V/X`, `Win+Shift+S`, `Alt+F4`, `Ctrl+Esc`).
+### 3.2 Violation & Keypress Tracking
+- **`suspicion_scoringprocessor.py`**: Monitors threshold triggers and records 3-second pre-roll/post-roll AVI video clips on detected violations:
+  - **Side looking**: > 3.0 seconds continuous gaze off-center horizontally.
+  - **Down looking**: > 5.0 seconds continuous downward gaze.
+  - **Off-screen**: > 1.5 seconds face lost or out of screen bounds.
+  - **Frantic eye movement**: > 6 rapid direction shifts within a 10-second sliding window.
+- **`keypress_trackprocessor.py`**: Monitors evasive hotkeys using global OS hooks:
+  - Switching & Clipboard: `Alt+Tab`, `Ctrl+C`, `Ctrl+V`, `Ctrl+X`
+  - System Navigation: `Windows Key`, `Ctrl+Esc`
+  - Browser Control: `Ctrl+T`, `Ctrl+N`, `Ctrl+W`, `F11`, `Esc`
+  - Screen Capture: `Print Screen`, `Win+Shift+S`
+  - Window Evasion: `Alt+F4`
 - **`heatmap_processor.py`**: Accumulates gaze positions, applies Gaussian blurring, and saves a JET color-mapped PNG on session exit.
 
 ---
@@ -140,7 +149,38 @@ The model training pipeline (`train_model.py`) converts raw session artifacts (h
 
 ---
 
-## 5. Continuous Integration & Verification Setup
+## 5. Execution & Usage Guide
+
+### 5.1 Real-Time Tracking & Data Recording
+To launch live proctoring and record a new session:
+```bash
+python main_trackerprocess.py
+```
+- Select `1` for non-cheating session or `2` for cheating session.
+- Controls: `{` steps through calibration stages; `}` exits the application.
+
+### 5.2 Building Dataset & Training Model
+To extract features from all saved session folders and retrain the classifier:
+```bash
+python dataset_builder.py
+python train_model.py
+```
+
+### 5.3 Single Session Prediction (Inference)
+To predict cheating probability for a recorded session folder:
+```bash
+python predict_session.py sessions/cheating/session_<id>
+```
+
+### 5.4 Running Unit Tests
+To verify pipeline integrity locally:
+```bash
+python -m unittest test_pipeline.py
+```
+
+---
+
+## 6. Continuous Integration & Verification Setup
 
 - **Unit Testing (`test_pipeline.py`)**: Covers colormap intensity recovery, feature extraction from synthetic session data, model retraining, and schema-aligned prediction.
 - **GitHub Actions Workflow (`.github/workflows/ci.yml`)**:
