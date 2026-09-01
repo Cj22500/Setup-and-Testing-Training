@@ -32,7 +32,7 @@ Webcam Feed → FrameBufferProcessor (Threaded Buffer)
    ─────────────────────────────────────────────────────────
 ```
 
-### 1.2 Offline Machine Learning & Feature Extraction Pipeline
+### 1.2 Machine Learning & Feature Extraction Pipeline
 ```
 Saved Session Directory (Heatmap PNG + CSV Log)
                    ↓
@@ -88,21 +88,59 @@ Saved Session Directory (Heatmap PNG + CSV Log)
 - **`keypress_trackprocessor.py`**: Listens for evasive key combos (`Alt+Tab`, `Ctrl+C/V/X`, `Win+Shift+S`, `Alt+F4`, `Ctrl+Esc`).
 - **`heatmap_processor.py`**: Accumulates gaze positions, applies Gaussian blurring, and saves a JET color-mapped PNG on session exit.
 
-### 3.3 Feature Extraction & Machine Learning Pipeline
-- **`heatmap_feature_extractor.py`**:
-  - Uses `cKDTree` on a 256-entry `COLORMAP_JET` lookup table to invert session heatmaps into quantitative 2D density maps.
-  - Computes spatial features: normalized centroids $(x, y)$, standard deviation spreads $(\sigma_x, \sigma_y)$, covariance eigenvalue elongation ratio, Shannon entropy on an $8\times 8$ grid, peak concentration ratio, total screen coverage ratio, and 64 grid cell probabilities (`grid_cell_0` to `63`).
-  - Computes behavioral features: violation counts per category, total gaze transitions, percentage of non-center time, and overall violation rate.
-- **`train_model.py`**: Trains `CalibratedClassifierCV(RandomForestClassifier(n_estimators=200, max_depth=6))` with 5-fold Stratified CV.
-- **Model Results**:
-  - **Cross-validated Accuracy**: `94.8%`
-  - **ROC-AUC**: `0.980`
-  - **Precision / Recall / F1**: `0.95` across both `cheating` and `non_cheating` classes.
-- **`predict_session.py`**: Loads `suspicion_model.joblib` and `feature_columns.json` to predict cheating probabilities on single session folders.
+---
+
+## 4. In-Depth Model Training Architecture & Process
+
+The model training pipeline (`train_model.py`) converts raw session artifacts (heatmaps and CSV logs) into a trained binary classifier.
+
+### 4.1 Dataset Composition & Features (`features.csv`)
+- **Sample Size**: 97 recorded exam sessions.
+- **Class Balance**:
+  - Class `0` (Non-Cheating): 49 sessions (50.5%)
+  - Class `1` (Cheating): 48 sessions (49.5%)
+- **Feature Space (79 Predictor Variables)**:
+  - **8 Gaze-Distribution Features**: `centroid_x_norm`, `centroid_y_norm`, `spread_x`, `spread_y`, `elongation_ratio`, `entropy`, `peak_ratio`, `coverage_ratio`.
+  - **64 Spatial Occupancy Grid Features**: `grid_cell_0` through `grid_cell_63` representing normalized gaze density across an $8\times 8$ screen grid.
+  - **7 Behavioral Violation Features**: `violation_count_frantic_eye_movement`, `violation_count_forbidden_key`, `violation_count_off_screen`, `violation_count_duration`, `num_transitions`, `pct_non_center_time`, `violation_rate`.
+
+### 4.2 Model Selection & Architecture
+- **Base Estimator**: `RandomForestClassifier`
+  - `n_estimators`: 200 trees
+  - `max_depth`: 6 (prevents overfitting on small sample sizes)
+  - `random_state`: 42
+- **Probability Calibration**: `CalibratedClassifierCV`
+  - Wraps the Random Forest classifier to map raw tree voting fractions to true calibrated probabilities.
+  - Uses 5-fold cross-validation (`cv=cv`) during calibration.
+
+### 4.3 Training & Cross-Validation Workflow
+1. **Data Loading**: Reads `features.csv` and separates `X` (79 features) from `y` (`label`).
+2. **Stratified K-Fold Cross-Validation**:
+   - Uses `StratifiedKFold(n_splits=5, shuffle=True, random_state=42)`.
+   - Generates out-of-fold probability predictions via `cross_val_predict(calibrated_model, X, y, cv=cv, method="predict_proba")`.
+3. **Full Dataset Refit**:
+   - After computing cross-validated metrics, the calibrated model is refit on the complete 97-session dataset to produce the final inference model.
+4. **Artifact Export**:
+   - Saves model to `suspicion_model.joblib`.
+   - Saves feature order array to `feature_columns.json` for exact column alignment during single-session prediction.
+
+### 4.4 Model Performance & Validation Metrics
+
+#### Evaluation Summary
+- **Cross-Validated Accuracy**: `0.948` (94.8%)
+- **Cross-Validated ROC-AUC**: `0.980`
+
+#### Classification Report
+| Class | Precision | Recall | F1-Score | Support |
+|---|---|---|---|---|
+| **Non-Cheating (0)** | 0.94 | 0.96 | 0.95 | 49 |
+| **Cheating (1)** | 0.96 | 0.94 | 0.95 | 48 |
+| **Macro Average** | 0.95 | 0.95 | 0.95 | 97 |
+| **Weighted Average** | 0.95 | 0.95 | 0.95 | 97 |
 
 ---
 
-## 4. Continuous Integration & Verification Setup
+## 5. Continuous Integration & Verification Setup
 
 - **Unit Testing (`test_pipeline.py`)**: Covers colormap intensity recovery, feature extraction from synthetic session data, model retraining, and schema-aligned prediction.
 - **GitHub Actions Workflow (`.github/workflows/ci.yml`)**:
